@@ -1,5 +1,6 @@
 import re
 from collections import Counter, OrderedDict
+from enum import unique
 
 
 class Links:
@@ -109,48 +110,55 @@ class Tags:
 	Analyzing data from tags.csv
 	"""
 
-	def __init__(self, path_to_the_file):
-		"""
-		Put here any fields that you think you will need.
-		"""
+	class Tag:
+		user_id: int
+		movie_id: int
+		tag: str
+		timestamp: int
 
-	def most_words(self, n):
-		"""
-		               The method returns top-n tags with most words inside. It is a dict
-		where the keys are tags and the values are the number of words inside the tag.
-		Drop the duplicates. Sort it by numbers descendingly.
-		"""
-		return big_tags
+		def __init__(
+			self, user_id: int, movie_id: int, tag: str, timestamp: int
+		):
+			self.user_id = user_id
+			self.movie_id = movie_id
+			self.tag = tag
+			self.timestamp = timestamp
 
-	def longest(self, n):
-		"""
-		The method returns top-n longest tags in terms of the number of characters.
-		It is a list of the tags. Drop the duplicates. Sort it by numbers descendingly.
-		"""
-		return big_tags
+	data: list[Tag] = []
 
-	def most_words_and_longest(self, n):
-		"""
-		The method returns the intersection between top-n tags with most words inside and
-		top-n longest tags in terms of the number of characters.
-		Drop the duplicates. It is a list of the tags.
-		"""
-		return big_tags
+	def __init__(self, path_to_the_file: str):
+		with open(path_to_the_file, "r") as f:
+			f.readline()
+			for line in f:
+				uid, mid, tag, timestamp = _split_line(line.strip())
+				self.data.append(
+					Tags.Tag(int(uid), int(mid), tag, int(timestamp))
+				)
 
-	def most_popular(self, n):
-		"""
-		The method returns the most popular tags.
-		It is a dict where the keys are tags and the values are the counts.
-		Drop the duplicates. Sort it by counts descendingly.
-		"""
-		return popular_tags
+	def most_words(self, n: int | None) -> dict[str, int]:
+		counter = Counter({tag.tag: len(tag.tag.split()) for tag in self.data})
+		return OrderedDict(counter.most_common(n))
 
-	def tags_with(self, word):
-		"""
-		The method returns all unique tags that include the word given as the argument.
-		Drop the duplicates. It is a list of the tags. Sort it by tag names alphabetically.
-		"""
-		return tags_with_word
+	def longest(self, n: int | None) -> list[str]:
+		return sorted(
+			(tag for tag in set(tag.tag for tag in self.data)),
+			key=lambda val: len(val),
+			reverse=True,
+		)[:n]
+
+	def most_words_and_longest(self, n: int | None) -> list[str]:
+		return list(
+			set(set(tag for tag in self.most_words(n))) & set(self.longest(n))
+		)
+
+	def most_popular(self, n: int | None) -> dict[str, int]:
+		counter = Counter(tag.tag for tag in self.data)
+		return OrderedDict(counter.most_common(n))
+
+	def tags_with(self, word: str) -> list[str]:
+		return list(
+			set(tag.tag for tag in self.data if word in tag.tag.split())
+		)
 
 
 class Ratings:
