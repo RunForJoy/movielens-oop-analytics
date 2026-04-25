@@ -1,6 +1,61 @@
 import re
 from collections import Counter, OrderedDict
-from enum import unique
+from typing import Literal
+
+import requests
+
+IMDB_FIELDS = Literal[
+	"Actors",
+	"Awards",
+	"BoxOffice",
+	"Country",
+	"DVD",
+	"Director",
+	"Genre",
+	"Language",
+	"Metascore",
+	"Plot",
+	"Poster",
+	"Production",
+	"Rated",
+	"Ratings",
+	"Released",
+	"Response",
+	"Runtime",
+	"Title",
+	"Type",
+	"Website",
+	"Writer",
+	"Year",
+	"imdbID",
+	"imdbRating",
+	"imdbVotes",
+]
+
+
+class ImdbRequester:
+	DIR: str = "/tmp/imdb_cache"
+
+	def __init__(self):
+		try:
+			os.mkdir(self.DIR)
+		except FileExistsError:
+			pass
+
+	def request(self, movie_id: str) -> dict[IMDB_FIELDS, str]:
+		movie_cache_path = os.path.join(self.DIR, movie_id)
+		if os.path.exists(movie_cache_path):
+			with open(movie_cache_path, "r") as f:
+				return json.load(f)
+		params = {
+			"apikey": os.environ["OMDB_API_KEY"],
+			"i": f"tt{movie_id}",
+		}
+		response = requests.get("https://www.omdbapi.com", params=params)
+		response.raise_for_status()
+		with open(movie_cache_path, "w") as f:
+			f.write(response.text)
+		return response.json()
 
 
 class Links:
