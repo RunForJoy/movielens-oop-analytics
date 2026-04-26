@@ -1,3 +1,5 @@
+import json
+import os
 import re
 from collections import Counter, OrderedDict
 from typing import Literal
@@ -34,11 +36,11 @@ IMDB_FIELDS = Literal[
 
 
 class ImdbRequester:
-	DIR: str = "/tmp/imdb_cache"
+	DIR: str = f"/home/{os.environ['USER']}/.cache/q_imdb"
 
 	def __init__(self):
 		try:
-			os.mkdir(self.DIR)
+			os.makedirs(self.DIR)
 		except FileExistsError:
 			pass
 
@@ -63,57 +65,91 @@ class Links:
 	Analyzing data from links.csv
 	"""
 
-	def __init__(self, path_to_the_file):
-		"""
-		Put here any fields that you think you will need.
-		"""
+	class Link:
+		movie_id: int
+		imdb_id: str
+		tmdb_id: int
 
-	def get_imdb(list_of_movies, list_of_fields):
-		"""
-		The method returns a list of lists [movieId, field1, field2, field3, ...] for the list of movies given as the argument (movieId).
-				For example, [movieId, Director, Budget, Cumulative Worldwide Gross, Runtime].
-				The values should be parsed from the IMDB webpages of the movies.
-			 Sort it by movieId descendingly.
-		"""
-		return imdb_info
+		def __init__(self, movie_id: int, imdb_id: str, tmdb_id: int):
+			self.movie_id = movie_id
+			self.imdb_id = imdb_id
+			self.tmdb_id = tmdb_id
 
-	def top_directors(self, n):
-		"""
-		The method returns a dict with top-n directors where the keys are directors and
-		the values are numbers of movies created by them. Sort it by numbers descendingly.
-		"""
-		return directors
+	data: dict[int, Link] = {}
+	reqr = ImdbRequester()
 
-	def most_expensive(self, n):
+	def __init__(self, path_to_the_file: str):
+		# movieId,imdbId,tmdbId
+		with open(path_to_the_file, "r") as f:
+			f.readline()
+			for line in f:
+				mid, iid, tid = _split_line(line.strip())
+				mid = int(mid)
+				self.data[mid] = Links.Link(mid, iid, int(tid))
+
+	def get_imdb(
+		self, list_of_movies: list[int], list_of_fields: list[IMDB_FIELDS]
+	) -> list[list[str]]:
+		res: list[list[str]] = []
+		list_of_movies = sorted(list_of_movies, reverse=True)
+		for movie_id in list_of_movies:
+			if movie_id not in self.data:
+				raise ValueError(f"movie with id({movie_id}) is undefined")
+		for movie_id in list_of_movies:
+			response = self.reqr.request(self.data[movie_id].imdb_id)
+			movie = [movie_id, *[response[key] for key in list_of_fields]]
+			res.append(movie)
+		return res
+
+	def top_directors(self, n: int | None) -> dict[str, int]:
+		counter = Counter(
+			self.reqr.request(movie.imdb_id)["Director"]
+			for movie in self.data.values()
+		)
+		return OrderedDict(counter.most_common(n))
+
+	def most_expensive(self, n: int | None) -> dict[str, int]:
+		most_expensive = []
+		for movie in self.data.values():
+			data = self.reqr.request(movie.imdb_id)
+			most_expensive.append(
+				(data["Title"], 0)
+			)  # omdb not supports budget
+		most_expensive.sort(key=lambda cell: cell[1], reverse=True)
+		return OrderedDict(most_expensive[:n])
+
+	def most_profitable(self, n: int | None) -> dict[str, int]:
+		most_profitable = []
+		for movie in self.data.values():
+			data = self.reqr.request(movie.imdb_id)
+			most_profitable.append(
+				(data["Title"], int(data["BoxOffice"][1:].replace(",", "")) - 0)
+			)  # omdb not supports budget
+		most_profitable.sort(key=lambda cell: cell[1], reverse=True)
+		return OrderedDict(most_profitable[:n])
+
+	def longest(self, n: int | None) -> dict[str, int]:
+		longest = []
+		for movie in self.data.values():
+			data = self.reqr.request(movie.imdb_id)
+			longest.append((data["Title"], int(data["Runtime"][:-4])))
+		longest.sort(key=lambda cell: cell[1], reverse=True)
+		return OrderedDict(longest[:n])
+
+	def top_cost_per_minute(self, n: int) -> dict[str, float]:
 		"""
 		The method returns a dict with top-n movies where the keys are movie titles and
-		the values are their budgets. Sort it by budgets descendingly.
-		"""
-		return budgets
-
-	def most_profitable(self, n):
-		"""
-		       The method returns a dict with top-n movies where the keys are movie titles and
-		       the values are the difference between cumulative worldwide gross and budget.
-		Sort it by the difference descendingly.
-		"""
-		return profits
-
-	def longest(self, n):
-		"""
-		       The method returns a dict with top-n movies where the keys are movie titles and
-		       the values are their runtime. If there are more than one version – choose any.
-		Sort it by runtime descendingly.
-		"""
-		return runtimes
-
-	def top_cost_per_minute(self, n):
-		"""
-				The method returns a dict with top-n movies where the keys are movie titles and
 		the values are the budgets divided by their runtime. The budgets can be in different currencies – do not pay attention to it.
-			 The values should be rounded to 2 decimals. Sort it by the division descendingly.
+		The values should be rounded to 2 decimals. Sort it by the division descendingly.
 		"""
-		return costs
+		cpm = []
+		for movie in self.data.values():
+			data = self.reqr.request(movie.imdb_id)
+			cpm.append(
+				(data["Title"], 0 / int(data["Runtime"][:-4]))
+			)  # omdb not supports budget
+		cpm.sort(key=lambda cell: cell[1], reverse=True)
+		return OrderedDict(cpm[:n])
 
 
 class Movies:
@@ -221,10 +257,32 @@ class Ratings:
 	Analyzing data from ratings.csv
 	"""
 
+	class Rating:
+		user_id: int
+		movie_id: int
+		rating: float
+		timestamp: int
+
+		def __init__(
+			self, user_id: int, movie_id: int, rating: float, timestamp: int
+		):
+			self.user_id = user_id
+			self.movie_id = movie_id
+			self.rating = rating
+			self.timestamp = timestamp
+
+	data: list[Rating] = []
+
 	def __init__(self, path_to_the_file):
-		"""
-		Put here any fields that you think you will need.
-		"""
+		with open(path_to_the_file, "r") as f:
+			f.readline()
+			for line in f:
+				uid, mid, rating, timestamp = _split_line(line.strip())
+				self.data.append(
+					Ratings.Rating(
+						int(uid), int(mid), float(rating), int(timestamp)
+					)
+				)
 
 	class Movies:
 		def dist_by_year(self):
@@ -236,15 +294,15 @@ class Ratings:
 
 		def dist_by_rating(self):
 			"""
-			       The method returns a dict where the keys are ratings and the values are counts.
+			The method returns a dict where the keys are ratings and the values are counts.
 			Sort it by ratings ascendingly.
 			"""
 			return ratings_distribution
 
 		def top_by_num_of_ratings(self, n):
 			"""
-			               The method returns top-n movies by the number of ratings.
-			               It is a dict where the keys are movie titles and the values are numbers.
+			The method returns top-n movies by the number of ratings.
+			It is a dict where the keys are movie titles and the values are numbers.
 			Sort it by numbers descendingly.
 			"""
 			return top_movies
@@ -261,19 +319,19 @@ class Ratings:
 
 		def top_controversial(self, n):
 			"""
-			      The method returns top-n movies by the variance of the ratings.
-			      It is a dict where the keys are movie titles and the values are the variances.
+			The method returns top-n movies by the variance of the ratings.
+			It is a dict where the keys are movie titles and the values are the variances.
 			Sort it by variance descendingly.
-			      The values should be rounded to 2 decimals.
+			The values should be rounded to 2 decimals.
 			"""
 			return top_movies
 
 	class Users:
 		"""
-		       In this class, three methods should work.
-		       The 1st returns the distribution of users by the number of ratings made by them.
-		       The 2nd returns the distribution of users by average or median ratings made by them.
-		       The 3rd returns top-n users with the biggest variance of their ratings.
+		In this class, three methods should work.
+		The 1st returns the distribution of users by the number of ratings made by them.
+		The 2nd returns the distribution of users by average or median ratings made by them.
+		The 3rd returns top-n users with the biggest variance of their ratings.
 		Inherit from the class Movies. Several methods are similar to the methods from it.
 		"""
 

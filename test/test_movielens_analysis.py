@@ -3,7 +3,14 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from movielens_analysis import Movies, Tags, _split_line
+from movielens_analysis import (
+	IMDB_FIELDS,
+	ImdbRequester,
+	Links,
+	Movies,
+	Tags,
+	_split_line,
+)
 
 
 class TestMovies:
@@ -105,6 +112,62 @@ class TestTags:
 
 		data = self.tags.tags_with("story")
 		assert len(set(data)) == len(data)
+
+
+class TestLinks:
+	def setup_class(self):
+		self.links = Links("test/datasets/links.csv")
+
+	def test_init(self):
+		links = self.links
+		assert len(links.data) == 4
+		first: Links.Link = links.data[1]
+		assert first.movie_id == 1
+		assert first.imdb_id == "0114709"
+		assert first.tmdb_id == 862
+
+	def test_get_imdb(self):
+		movies = [1, 3, 4]
+		fields: list[IMDB_FIELDS] = [
+			"Director",
+			"Runtime",
+			"Actors",
+		]
+		data = self.links.get_imdb(movies, fields)
+		assert len(data) == 3
+
+	def test_top_directors(self):
+		data = self.links.top_directors(3)
+		assert data == {
+			"John Lasseter": 1,
+			"Joe Johnston": 1,
+			"Howard Deutch": 1,
+		}
+		assert data["John Lasseter"] == 1
+
+	def test_most_expensive(self):
+		data = self.links.most_expensive(3)
+		assert len(data) == 3
+		items = list(data.values())
+		assert items[0] >= items[1]
+
+	def test_most_profitable(self):
+		data = self.links.most_profitable(3)
+		assert len(data) == 3
+		items = list(data.values())
+		assert items[0] >= items[1]
+
+	def test_longest(self):
+		data = self.links.longest(3)
+		assert len(data) == 3
+		items = list(data.values())
+		assert items[0] >= items[1]
+
+	def test_top_cost_per_minute(self):
+		data = self.links.top_cost_per_minute(3)
+		assert len(data) == 3
+		items = list(data.values())
+		assert items[0] >= items[1]
 
 
 def test_split_line():
