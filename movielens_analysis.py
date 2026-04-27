@@ -2,7 +2,8 @@ import json
 import os
 import re
 from collections import Counter, OrderedDict
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Callable, Literal
 
 import requests
 
@@ -33,6 +34,8 @@ IMDB_FIELDS = Literal[
 	"imdbRating",
 	"imdbVotes",
 ]
+
+METRIC_TYPES = Literal["avarage", "median"]
 
 
 class ImdbRequester:
@@ -75,11 +78,11 @@ class Links:
 			self.imdb_id = imdb_id
 			self.tmdb_id = tmdb_id
 
-	data: dict[int, Link] = {}
+	data: dict[int, Link]
 	reqr = ImdbRequester()
 
 	def __init__(self, path_to_the_file: str):
-		# movieId,imdbId,tmdbId
+		self.data = {}
 		with open(path_to_the_file, "r") as f:
 			f.readline()
 			for line in f:
@@ -167,9 +170,10 @@ class Movies:
 			self.title = title
 			self.genres = genres
 
-	data: dict[int, Movie] = {}
+	data: dict[int, Movie]
 
 	def __init__(self, path_to_the_file: str):
+		self.data = {}
 		with open(path_to_the_file, "r") as f:
 			f.readline()
 			for line in f:
@@ -215,9 +219,10 @@ class Tags:
 			self.tag = tag
 			self.timestamp = timestamp
 
-	data: list[Tag] = []
+	data: list[Tag]
 
 	def __init__(self, path_to_the_file: str):
+		self.data = []
 		with open(path_to_the_file, "r") as f:
 			f.readline()
 			for line in f:
@@ -271,9 +276,10 @@ class Ratings:
 			self.rating = rating
 			self.timestamp = timestamp
 
-	data: list[Rating] = []
+	data: list[Rating]
 
 	def __init__(self, path_to_the_file):
+		self.data = []
 		with open(path_to_the_file, "r") as f:
 			f.readline()
 			for line in f:
@@ -285,46 +291,74 @@ class Ratings:
 				)
 
 	class Movies:
-		def dist_by_year(self):
-			"""
-			The method returns a dict where the keys are years and the values are counts.
-			Sort it by years ascendingly. You need to extract years from timestamps.
-			"""
-			return ratings_by_year
+		ratings: "Ratings"
 
-		def dist_by_rating(self):
-			"""
-			The method returns a dict where the keys are ratings and the values are counts.
-			Sort it by ratings ascendingly.
-			"""
-			return ratings_distribution
+		def __init__(self, ratings: "Ratings", movies: Movies):
+			self.ratings = ratings
+			self.movies = movies
 
-		def top_by_num_of_ratings(self, n):
-			"""
-			The method returns top-n movies by the number of ratings.
-			It is a dict where the keys are movie titles and the values are numbers.
-			Sort it by numbers descendingly.
-			"""
-			return top_movies
+		def dist_by_year(self) -> dict[int, int]:
+			counter = Counter(
+				int(_extract_year(rating.timestamp))
+				for rating in self.ratings.data
+			)
+			return OrderedDict(counter)
 
-		# def top_by_ratings(self, n, metric=average):
-		def top_by_ratings(self, n, metric):
+		def dist_by_rating(self) -> dict[float, int]:
+			counter = Counter(rating.rating for rating in self.ratings.data)
+			return OrderedDict(sorted(counter.items()))
+
+		def top_by_num_of_ratings(self, n: int | None) -> dict[str, int]:
+			counter = Counter(
+				self.movies.data[rating.movie_id].title
+				for rating in self.ratings.data
+			)
+			return OrderedDict(counter.most_common(n))
+
+		def top_by_ratings(
+			self, n: int | None, metric: METRIC_TYPES = "avarage"
+		) -> dict[str, float]:
+			METHODS: dict[
+				METRIC_TYPES, Callable[[list[int | float]], float]
+			] = {
+				"avarage": _avarage,
+				"median": _median,
+			}
+			method = METHODS[metric]
 			"""
 			The method returns top-n movies by the average or median of the ratings.
 			It is a dict where the keys are movie titles and the values are metric values.
 			Sort it by metric descendingly.
 			The values should be rounded to 2 decimals.
 			"""
-			return top_movies
+			titles: dict[str, list[float]] = {}
+			for rating in self.ratings.data:
+				title = self.movies.data[rating.movie_id].title
+				if title not in titles:
+					titles[title] = []
+				titles[title].append(rating.rating)
+			tmp = {cell[0]: method(cell[1]) for cell in titles.items()}
+			return OrderedDict(
+				sorted(tmp.items(), key=lambda x: x[1], reverse=True)[:n]
+			)
 
-		def top_controversial(self, n):
+		def top_controversial(self, n: int | None) -> dict[str, float]:
 			"""
 			The method returns top-n movies by the variance of the ratings.
 			It is a dict where the keys are movie titles and the values are the variances.
 			Sort it by variance descendingly.
 			The values should be rounded to 2 decimals.
 			"""
-			return top_movies
+			titles: dict[str, list[float]] = {}
+			for rating in self.ratings.data:
+				title = self.movies.data[rating.movie_id].title
+				if title not in titles:
+					titles[title] = []
+				titles[title].append(rating.rating)
+			tmp = {cell[0]: _variance(cell[1]) for cell in titles.items()}
+			return OrderedDict(
+				sorted(tmp.items(), key=lambda x: x[1], reverse=True)[:n]
+			)
 
 	class Users:
 		"""
@@ -352,3 +386,27 @@ def _split_line(line: str) -> tuple[str, ...]:
 		else:
 			merge.append(col)
 	return (*res,)
+
+
+def _extract_year(timestamp: int) -> int:
+	return datetime.fromtimestamp(timestamp, tz=timezone.utc).year
+
+
+def _median(data: list[int | float]) -> float:
+	sorted_data = sorted(data)
+	n = len(sorted_data)
+	mid = n // 2
+	if n % 2 == 0:
+		res = (sorted_data[mid - 1] + sorted_data[mid]) / 2
+	else:
+		res = sorted_data[mid]
+	return round(res, 2)
+
+
+def _avarage(data: list[int | float]) -> float:
+	return round(sum(data) / len(data), 2)
+
+
+def _variance(data: list[int | float]) -> float:
+	mean = sum(data) / len(data)
+	return round(sum((x - mean) ** 2 for x in data) / len(data), 2)
