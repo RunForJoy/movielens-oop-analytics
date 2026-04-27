@@ -234,6 +234,25 @@ class TestRatings:
 			items = list(data.items())
 			assert items[0][1] >= items[1][1]
 
+	class TestUsers:
+		def setup_class(self):
+			self.users = Ratings.Users(
+				Ratings("test/datasets/ratings.csv"),
+				Movies("test/datasets/movies.csv"),
+			)
+
+		def test_dist_by_num_of_ratings(self):
+			data = self.users.dist_by_num_of_ratings()
+			assert data == {1: 4}
+
+		def test_dist_by_ratings(self):
+			data = self.users.dist_by_ratings()
+			assert data == {1: 4.25}
+
+		def test_top_controversial(self):
+			data = self.users.top_controversial(10)
+			assert data == {1: 0.19}
+
 
 def test_split_line():
 	line = '4,"Foo, Bar, Biz (1993)",Adventure'

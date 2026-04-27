@@ -35,7 +35,7 @@ IMDB_FIELDS = Literal[
 	"imdbVotes",
 ]
 
-METRIC_TYPES = Literal["avarage", "median"]
+Metric = Literal["avarage", "median"]
 
 
 class ImdbRequester:
@@ -316,21 +316,13 @@ class Ratings:
 			return OrderedDict(counter.most_common(n))
 
 		def top_by_ratings(
-			self, n: int | None, metric: METRIC_TYPES = "avarage"
+			self, n: int | None, metric: Metric = "avarage"
 		) -> dict[str, float]:
-			METHODS: dict[
-				METRIC_TYPES, Callable[[list[int | float]], float]
-			] = {
+			METHODS: dict[Metric, Callable[[list[int | float]], float]] = {
 				"avarage": _avarage,
 				"median": _median,
 			}
 			method = METHODS[metric]
-			"""
-			The method returns top-n movies by the average or median of the ratings.
-			It is a dict where the keys are movie titles and the values are metric values.
-			Sort it by metric descendingly.
-			The values should be rounded to 2 decimals.
-			"""
 			titles: dict[str, list[float]] = {}
 			for rating in self.ratings.data:
 				title = self.movies.data[rating.movie_id].title
@@ -342,13 +334,7 @@ class Ratings:
 				sorted(tmp.items(), key=lambda x: x[1], reverse=True)[:n]
 			)
 
-		def top_controversial(self, n: int | None) -> dict[str, float]:
-			"""
-			The method returns top-n movies by the variance of the ratings.
-			It is a dict where the keys are movie titles and the values are the variances.
-			Sort it by variance descendingly.
-			The values should be rounded to 2 decimals.
-			"""
+		def top_controversial(self, n: int | None) -> dict[int | str, float]:
 			titles: dict[str, list[float]] = {}
 			for rating in self.ratings.data:
 				title = self.movies.data[rating.movie_id].title
@@ -360,7 +346,7 @@ class Ratings:
 				sorted(tmp.items(), key=lambda x: x[1], reverse=True)[:n]
 			)
 
-	class Users:
+	class Users(Movies):
 		"""
 		In this class, three methods should work.
 		The 1st returns the distribution of users by the number of ratings made by them.
@@ -368,6 +354,41 @@ class Ratings:
 		The 3rd returns top-n users with the biggest variance of their ratings.
 		Inherit from the class Movies. Several methods are similar to the methods from it.
 		"""
+
+		def dist_by_num_of_ratings(self) -> dict[int, int]:
+			counter = Counter(rating.user_id for rating in self.ratings.data)
+			return OrderedDict(counter)
+
+		def dist_by_ratings(
+			self, metric: Metric = "avarage"
+		) -> dict[int, float]:
+			METHODS: dict[Metric, Callable[[list[int | float]], float]] = {
+				"avarage": _avarage,
+				"median": _median,
+			}
+			method = METHODS[metric]
+			users: dict[int, list[float]] = {}
+			for rating in self.ratings.data:
+				user: int = rating.user_id
+				if user not in users:
+					users[user] = []
+				users[user].append(rating.rating)
+			tmp = {cell[0]: method(cell[1]) for cell in users.items()}
+			return OrderedDict(
+				sorted(tmp.items(), key=lambda x: x[1], reverse=True)
+			)
+
+		def top_controversial(self, n: int | None) -> dict[int | str, float]:
+			users: dict[int, list[float]] = {}
+			for rating in self.ratings.data:
+				user: int = rating.user_id
+				if user not in users:
+					users[user] = []
+				users[user].append(rating.rating)
+			tmp = {cell[0]: _variance(cell[1]) for cell in users.items()}
+			return OrderedDict(
+				sorted(tmp.items(), key=lambda x: x[1], reverse=True)[:n]
+			)
 
 
 def _split_line(line: str) -> tuple[str, ...]:
