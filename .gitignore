@@ -1,6 +1,7 @@
 # Prerequisites
 *.d
-
+__pycache__
+README_RUS.md
 # Object files
 *.o
 *.ko
